@@ -1,0 +1,254 @@
+// ==UserScript==
+// @name         Intercept and Filter Requests
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  Intercept and filter payload data from requests
+// @author       Your Name
+// @match        https://*.tirangaapi.com/*
+// @grant        none
+// @run-at       document-start
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    let interceptEnabled = true; // Automatically enable interception
+    let allData = []; // Array to store data from all pages
+
+    console.log('Request interception is set up and enabled');
+
+    // Function to handle and log fetch request and response
+    const handleFetch = (response, args) => {
+        if (interceptEnabled && (response.url.includes("tirangaapi.com/api/webapi/GetGameIssue") || response.url.includes("tirangaapi.com/api/webapi/GetNoaverageEmerdList"))) {
+            console.log('Intercepted fetch request to:', response.url);
+            console.log('Request headers:', args[1]?.headers);
+            console.log('Request payload:', args[1]?.body);
+            response.clone().json().then(data => {
+                console.log('Response payload:', data);
+                if (data.code === 0 && data.data && data.data.list) {
+                    allData = allData.concat(data.data.list); // Collect the data
+                    console.log('Collected data so far:', allData);
+
+                    if (data.data.pageNo === data.data.totalPage) {
+                        // Process the data once all pages have been collected
+                        processData(allData);
+                    }
+                }
+            }).catch(err => {
+                console.error('Error reading response:', err);
+            });
+        }
+    };
+
+    // Override the native fetch function
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        return originalFetch(...args).then(response => {
+            handleFetch(response, args);
+            return response;
+        }).catch(err => {
+            console.error('Fetch error:', err);
+            throw err;
+        });
+    };
+
+    // Override the native XMLHttpRequest
+    const originalXhrOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        this._url = url;  // Store the URL for use in the send method
+        return originalXhrOpen.call(this, method, url, ...rest);
+    };
+
+    const originalXhrSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function(body) {
+        this.addEventListener('load', function() {
+            if (interceptEnabled && (this._url.includes("tirangaapi.com/api/webapi/GetGameIssue") || this._url.includes("tirangaapi.com/api/webapi/GetNoaverageEmerdList"))) {
+                console.log('Intercepted XHR request to:', this._url);
+                console.log('Request payload:', body);
+                try {
+                    const responseJson = JSON.parse(this.responseText);
+                    console.log('Response payload:', responseJson);
+                    if (responseJson.code === 0 && responseJson.data && responseJson.data.list) {
+                        allData = allData.concat(responseJson.data.list); // Collect the data
+                        console.log('Collected data so far:', allData);
+
+                        if (responseJson.data.pageNo === responseJson.data.totalPage) {
+                            // Process the data once all pages have been collected
+                            processData(allData);
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error parsing response JSON:', err);
+                    console.log('Response payload:', this.responseText);
+                }
+            }
+        });
+        return originalXhrSend.call(this, body);
+    };
+
+    // Function to process the collected data and generate a new HTML page
+    const processData = (data) => {
+        console.log('Final collected data:', data);
+
+        // Create a new HTML page with the collected data
+        const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Candlestick Chart</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
+    .candle {
+      stroke: black;
+      stroke-width: 1;
+    }
+    .green {
+      fill: green;
+    }
+    .red {
+      fill: red;
+    }
+    .scrollable-container {
+      overflow-x: auto;
+      width: 100%;
+    }
+    .slider-container {
+      margin-top: 10px;
+    }
+    .chart-container {
+      margin-bottom: 50px;
+    }
+  </style>
+</head>
+<body>
+  <div class="slider-container">
+    <label for="candleWidth">Candle Width: </label>
+    <input type="range" id="candleWidth" name="candleWidth" min="1" max="50" value="10">
+  </div>
+  <div id="charts"></div>
+  <script>
+    const margin = { top: 20, right: 20, bottom: 100, left: 40 };
+    const height = 300 - margin.top - margin.bottom;
+
+    const yScale = d3.scaleLinear()
+      .domain([0, 9])
+      .range([height, 0]);
+
+    const yAxis = d3.axisLeft(yScale);
+
+    const drawChart = (chartData, candleWidth, containerId) => {
+      const width = chartData.length * (candleWidth + 2) - margin.left - margin.right;
+
+      const xScale = d3.scaleBand()
+        .domain(chartData.map(d => d.round))
+        .range([0, width])
+        .padding(0.2);
+
+      const xAxis = d3.axisBottom(xScale)
+        .tickFormat(d => d)
+        .tickSizeOuter(0);
+
+      d3.select(`#${containerId}`).selectAll("*").remove();
+
+      const svg = d3.select(`#${containerId}`)
+        .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+      svg.append("g")
+        .attr("class", "x-axis")
+        .attr("transform", `translate(0, ${height})`)
+        .call(xAxis)
+        .selectAll("text")
+        .style("text-anchor", "end")
+        .attr("dx", "-.8em")
+        .attr("dy", ".15em")
+        .attr("transform", "rotate(-90)");
+
+      svg.append("g")
+        .attr("class", "y-axis")
+        .call(yAxis);
+
+      svg.selectAll(".candle")
+        .data(chartData)
+        .enter()
+        .append("rect")
+        .attr("class", d => d.num % 2 === 0 ? "red candle" : "green candle")
+        .attr("x", d => xScale(d.round))
+        .attr("y", d => yScale(Math.max(d.num, 0)))
+        .attr("width", xScale.bandwidth())
+        .attr("height", d => Math.abs(yScale(d.num) - yScale(0)));
+
+      svg.selectAll(".wick")
+        .data(chartData)
+        .enter()
+        .append("line")
+        .attr("class", "wick")
+        .attr("x1", d => xScale(d.round) + xScale.bandwidth() / 2)
+        .attr("y1", d => yScale(Math.max(d.num, 0)))
+        .attr("x2", d => xScale(d.round) + xScale.bandwidth() / 2)
+        .attr("y2", d => yScale(Math.min(d.num, 0)))
+        .attr("stroke", "black");
+
+      svg.selectAll(".label")
+        .data(chartData)
+        .enter()
+        .append("text")
+        .attr("class", "label")
+        .attr("x", d => xScale(d.round) + xScale.bandwidth() / 2)
+        .attr("y", d => yScale(d.num) - 5)
+        .attr("text-anchor", "middle")
+        .text(d => d.num);
+    };
+
+    const groupDataByRound = (data) => {
+      const groups = [];
+      let currentGroup = [];
+      data.forEach(d => {
+        const round = d.round % 10000;
+        currentGroup.push(d);
+        if (round === 1) {
+          groups.push(currentGroup);
+          currentGroup = [];
+        }
+      });
+      if (currentGroup.length > 0) {
+        groups.push(currentGroup);
+      }
+      return groups;
+    };
+
+    const renderCharts = (data, candleWidth) => {
+      const chartContainer = d3.select("#charts");
+      chartContainer.selectAll("*").remove();
+      const groupedData = groupDataByRound(data);
+      groupedData.forEach((group, index) => {
+        const containerId = `chart-${index}`;
+        chartContainer.append("div").attr("id", containerId).attr("class", "chart-container");
+        drawChart(group, candleWidth, containerId);
+      });
+    };
+
+    const data = ${JSON.stringify(data)};
+    renderCharts(data, 10);
+
+    d3.select("#candleWidth").on("input", function() {
+      renderCharts(data, +this.value);
+    });
+  </script>
+</body>
+</html>
+        `;
+
+        const blob = new Blob([htmlContent], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        window.location.href = url; // Redirect to the new page
+    };
+
+})();
