@@ -1,0 +1,82 @@
+// Save the original fetch function
+const originalFetch = window.fetch;
+
+// Override the fetch function
+window.fetch = async function(url, options = {}) {
+    // Log the request details
+    console.log('Fetch Request URL:', url);
+    console.log('Fetch Request Method:', options.method || 'GET');
+    console.log('Fetch Request Headers:', options.headers || 'No headers');
+    console.log('Fetch Request Body:', options.body ? JSON.stringify(options.body) : 'No body');
+
+    // Check for Bearer token in headers and log it
+    if (options.headers && options.headers.Authorization) {
+        const authHeader = options.headers.Authorization;
+        const tokenMatch = authHeader.match(/^Bearer\s+(.*)$/);
+        if (tokenMatch) {
+            console.log('Bearer Token:', tokenMatch[1]);
+        } else {
+            console.log('Authorization Header:', authHeader);
+        }
+    }
+
+    // Perform the fetch request
+    const response = await originalFetch(url, options);
+
+    // Log the response details
+    console.log('Fetch Response Status:', response.status);
+    console.log('Fetch Response Headers:', [...response.headers].map(([key, value]) => `${key}: ${value}`).join(', '));
+
+    // Read and log the response body
+    const contentType = response.headers.get('content-type');
+    let responseBody;
+    if (contentType && contentType.includes('application/json')) {
+        responseBody = await response.json();
+    } else {
+        responseBody = await response.text();
+    }
+    console.log('Fetch Response Body:', responseBody);
+
+    // Return the response object and body
+    return {
+        response,
+        body: responseBody
+    };
+};
+
+
+
+
+
+
+
+// Save the original XMLHttpRequest methods
+const originalOpen = XMLHttpRequest.prototype.open;
+const originalSend = XMLHttpRequest.prototype.send;
+
+XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+    this._url = url;
+    this._method = method;
+    console.log('XMLHttpRequest Open:', method, url);
+    return originalOpen.apply(this, [method, url, ...rest]);
+};
+
+XMLHttpRequest.prototype.send = function(body) {
+    // Log the request body if present
+    console.log('XMLHttpRequest Body:', body ? body : 'No body');
+    
+    // Define a custom event handler to capture response
+    this.addEventListener('load', function() {
+        console.log('XMLHttpRequest Response Status:', this.status);
+        console.log('XMLHttpRequest Response Headers:', this.getAllResponseHeaders());
+        console.log('XMLHttpRequest Response Body:', this.responseText);
+    });
+
+    // Ensure the original send method is called
+    return originalSend.apply(this, [body]);
+};
+
+
+
+
+
