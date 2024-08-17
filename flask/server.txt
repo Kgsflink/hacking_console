@@ -1,0 +1,127 @@
+// ==UserScript==
+// @name         Intercept and Send Requests to Server
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  Intercept, filter, and send payload data from requests to a Flask server
+// @author       Your Name
+// @match        https://*.tirangaapi.com/*
+// @grant        none
+// @run-at       document-start
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    let interceptEnabled = true; // Automatically enable interception
+    let allData = []; // Array to store data from all pages
+    let targetCount = parseInt(prompt("Enter the number of data entries you want to collect:"), 10);
+
+    console.log('Request interception is set up and enabled');
+    console.log(`Target data count is set to ${targetCount} entries.`);
+
+    // Function to handle and log fetch request and response
+    const handleFetch = (response, args) => {
+        if (interceptEnabled && (response.url.includes("tirangaapi.com/api/webapi/GetGameIssue") || response.url.includes("tirangaapi.com/api/webapi/GetNoaverageEmerdList"))) {
+            console.log('Intercepted fetch request to:', response.url);
+            console.log('Request headers:', args[1]?.headers);
+            console.log('Request payload:', args[1]?.body);
+            response.clone().json().then(data => {
+                console.log('Response payload:', data);
+                if (data.code === 0 && data.data && data.data.list) {
+                    allData = allData.concat(data.data.list); // Collect the data
+                    console.log('Collected data so far:', allData.length, 'entries');
+
+                    if (allData.length >= targetCount) {
+                        // Send data to local Flask server when targetCount entries are collected
+                        sendDataToServer(allData);
+                        allData = []; // Reset data after sending
+                    }
+
+                    if (data.data.pageNo === data.data.totalPage) {
+                        // Process the remaining data if any
+                        processData(allData);
+                    }
+                }
+            }).catch(err => {
+                console.error('Error reading response:', err);
+            });
+        }
+    };
+
+    // Function to send data to local Flask server
+    const sendDataToServer = (data) => {
+        fetch('http://localhost:8000/save_data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        }).then(response => response.json())
+        .then(data => {
+            console.log('Data successfully sent to server:', data);
+        }).catch(err => {
+            console.error('Error sending data to server:', err);
+        });
+    };
+
+    // Override the native fetch function
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        return originalFetch(...args).then(response => {
+            handleFetch(response, args);
+            return response;
+        }).catch(err => {
+            console.error('Fetch error:', err);
+            throw err;
+        });
+    };
+
+    // Override the native XMLHttpRequest
+    const originalXhrOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        this._url = url;  // Store the URL for use in the send method
+        return originalXhrOpen.call(this, method, url, ...rest);
+    };
+
+    const originalXhrSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function(body) {
+        this.addEventListener('load', function() {
+            if (interceptEnabled && (this._url.includes("tirangaapi.com/api/webapi/GetGameIssue") || this._url.includes("tirangaapi.com/api/webapi/GetNoaverageEmerdList"))) {
+                console.log('Intercepted XHR request to:', this._url);
+                console.log('Request payload:', body);
+                try {
+                    const responseJson = JSON.parse(this.responseText);
+                    console.log('Response payload:', responseJson);
+                    if (responseJson.code === 0 && responseJson.data && responseJson.data.list) {
+                        allData = allData.concat(responseJson.data.list); // Collect the data
+                        console.log('Collected data so far:', allData.length, 'entries');
+
+                        if (allData.length >= targetCount) {
+                            // Send data to local Flask server when targetCount entries are collected
+                            sendDataToServer(allData);
+                            allData = []; // Reset data after sending
+                        }
+
+                        if (responseJson.data.pageNo === responseJson.data.totalPage) {
+                            // Process the remaining data if any
+                            processData(allData);
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error parsing response JSON:', err);
+                    console.log('Response payload:', this.responseText);
+                }
+            }
+        });
+        return originalXhrSend.call(this, body);
+    };
+
+    // Function to process the remaining collected data
+    const processData = (data) => {
+        if (data.length > 0) {
+            sendDataToServer(data);
+        }
+        console.log('Final collected data:', data.length, 'entries');
+    };
+
+})();
