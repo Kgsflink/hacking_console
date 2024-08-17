@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Candlestick Chart</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
+    .candle {
+      stroke: black;
+      stroke-width: 1;
+    }
+    .green {
+      fill: green;
+    }
+    .red {
+      fill: red;
+    }
+    .highlight {
+      stroke: yellow;
+      stroke-width: 3;
+    }
+    .chart-container {
+      margin-bottom: 50px;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    .x-axis text {
+      font-size: 10px;
+    }
+    .link-line {
+      stroke: black;
+      stroke-width: 2;
+    }
+    .slider-container {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="slider-container">
+    <label for="candleWidth">Candle Width: </label>
+    <input type="range" id="candleWidth" name="candleWidth" min="1" max="50" value="10">
+  </div>
+  <div id="charts"></div>
+  <script>
+    const margin = { top: 20, right: 20, bottom: 100, left: 40 };
+    const height = 300 - margin.top - margin.bottom;
+
+    const yScale = d3.scaleLinear()
+      .domain([0, 9])
+      .range([height, 0]);
+
+    const yAxis = d3.axisLeft(yScale);
+
+    const determineColor = (num) => {
+      return num % 2 === 0 ? "red" : "green";
+    };
+
+    const highlightSequences = (data) => {
+      let count = 1;
+      for (let i = 1; i < data.length; i++) {
+        if (determineColor(data[i].number) === determineColor(data[i - 1].number)) {
+          count++;
+        } else {
+          if (count >= 4) {
+            for (let j = i - count; j < i; j++) {
+              data[j].highlight = true;
+            }
+          }
+          count = 1;
+        }
+      }
+      if (count >= 4) {
+        for (let j = data.length - count; j < data.length; j++) {
+          data[j].highlight = true;
+        }
+      }
+    };
+
+    const drawChart = (chartData, candleWidth, containerId) => {
+      const width = chartData.length * (candleWidth + 2) - margin.left - margin.right;
+
+      const xScale = d3.scaleBand()
+        .domain(chartData.map(d => d.issueNumber))
+        .range([0, width])
+        .padding(0.2);
+
+      const xAxis = d3.axisBottom(xScale)
+        .tickFormat(d => d)
+        .tickSizeOuter(0);
+
+      d3.select(`#${containerId}`).selectAll("*").remove();
+
+      const svg = d3.select(`#${containerId}`)
+        .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+      svg.append("g")
+        .attr("class", "x-axis")
+        .attr("transform", `translate(0, ${height})`)
+        .call(xAxis)
+        .selectAll("text")
+        .style("text-anchor", "end")
+        .attr("dx", "-.8em")
+        .attr("dy", ".15em")
+        .attr("transform", "rotate(-90)");
+
+      svg.append("g")
+        .attr("class", "y-axis")
+        .call(yAxis);
+
+      svg.selectAll(".candle")
+        .data(chartData)
+        .enter()
+        .append("rect")
+        .attr("class", d => `${determineColor(d.number)} candle ${d.highlight ? 'highlight' : ''}`)
+        .attr("x", d => xScale(d.issueNumber))
+        .attr("y", d => yScale(Math.max(d.number, 0)))
+        .attr("width", xScale.bandwidth())
+        .attr("height", d => Math.abs(yScale(d.number) - yScale(0)));
+
+      svg.selectAll(".wick")
+        .data(chartData)
+        .enter()
+        .append("line")
+        .attr("class", "wick")
+        .attr("x1", d => xScale(d.issueNumber) + xScale.bandwidth() / 2)
+        .attr("y1", d => yScale(Math.max(d.number, 0)))
+        .attr("x2", d => xScale(d.issueNumber) + xScale.bandwidth() / 2)
+        .attr("y2", d => yScale(Math.min(d.number, 0)))
+        .attr("stroke", "black");
+
+      svg.selectAll(".label")
+        .data(chartData)
+        .enter()
+        .append("text")
+        .attr("class", "label")
+        .attr("x", d => xScale(d.issueNumber) + xScale.bandwidth() / 2)
+        .attr("y", d => yScale(d.number) - 5)
+        .attr("text-anchor", "middle")
+        .text(d => d.number);
+
+      svg.selectAll(".link-line")
+        .data(chartData.slice(1))
+        .enter()
+        .append("line")
+        .attr("class", "link-line")
+        .attr("x1", (d, i) => xScale(chartData[i].issueNumber) + xScale.bandwidth() / 2)
+        .attr("y1", (d, i) => yScale(chartData[i].number))
+        .attr("x2", (d, i) => xScale(chartData[i + 1].issueNumber) + xScale.bandwidth() / 2)
+        .attr("y2", (d, i) => yScale(chartData[i + 1].number));
+    };
+
+    const groupDataByIssueNumber = (data) => {
+      const groups = [];
+      let currentGroup = [];
+      data.forEach(d => {
+        const issue = parseInt(d.issueNumber.substring(d.issueNumber.length - 4));
+        currentGroup.push(d);
+        if (issue === 1) {
+          groups.push(currentGroup);
+          currentGroup = [];
+        }
+      });
+      if (currentGroup.length > 0) {
+        groups.push(currentGroup);
+      }
+      return groups;
+    };
+
+    const renderCharts = (data, candleWidth) => {
+      const chartContainer = d3.select("#charts");
+      chartContainer.selectAll("*").remove();
+      const groupedData = groupDataByIssueNumber(data);
+      groupedData.forEach((group, index) => {
+        highlightSequences(group);
+        const containerId = `chart-${index}`;
+        const container = chartContainer.append("div")
+          .attr("id", containerId)
+          .attr("class", "chart-container");
+        drawChart(group, candleWidth, containerId);
+      });
+    };
+
+    const loadDataAndRenderCharts = async () => {
+      try {
+        const response = await fetch('data_request.json');
+        const data = await response.json();
+        renderCharts(data, 10);
+
+        d3.select("#candleWidth").on("input", function() {
+          renderCharts(data, +this.value);
+        });
+      } catch (error) {
+        console.error("Error loading the data:", error);
+      }
+    };
+
+    loadDataAndRenderCharts();
+  </script>
+</body>
+</html>
