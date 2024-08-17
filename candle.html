@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Candlestick Chart</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
+    .candle {
+      stroke: black;
+      stroke-width: 1;
+    }
+    .green {
+      fill: green;
+    }
+    .red {
+      fill: red;
+    }
+    .scrollable-container {
+      overflow-x: auto;
+      width: 100%;
+    }
+    .slider-container {
+      margin-top: 10px;
+    }
+    .chart-container {
+      margin-bottom: 50px;
+    }
+  </style>
+</head>
+<body>
+  <div class="slider-container">
+    <label for="candleWidth">Candle Width: </label>
+    <input type="range" id="candleWidth" name="candleWidth" min="1" max="50" value="10">
+  </div>
+  <div id="charts"></div>
+  <script>
+    const margin = { top: 20, right: 20, bottom: 100, left: 40 };
+    const height = 300 - margin.top - margin.bottom;
+
+    const yScale = d3.scaleLinear()
+      .domain([0, 9])
+      .range([height, 0]);
+
+    const yAxis = d3.axisLeft(yScale);
+
+    const drawChart = (chartData, candleWidth, containerId) => {
+      const width = chartData.length * (candleWidth + 2) - margin.left - margin.right;
+
+      const xScale = d3.scaleBand()
+        .domain(chartData.map(d => d.round))
+        .range([0, width])
+        .padding(0.2);
+
+      const xAxis = d3.axisBottom(xScale)
+        .tickFormat(d => d)
+        .tickSizeOuter(0);
+
+      d3.select(`#${containerId}`).selectAll("*").remove();
+
+      const svg = d3.select(`#${containerId}`)
+        .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+      svg.append("g")
+        .attr("class", "x-axis")
+        .attr("transform", `translate(0, ${height})`)
+        .call(xAxis)
+        .selectAll("text")
+        .style("text-anchor", "end")
+        .attr("dx", "-.8em")
+        .attr("dy", ".15em")
+        .attr("transform", "rotate(-90)");
+
+      svg.append("g")
+        .attr("class", "y-axis")
+        .call(yAxis);
+
+      svg.selectAll(".candle")
+        .data(chartData)
+        .enter()
+        .append("rect")
+        .attr("class", d => d.num % 2 === 0 ? "red candle" : "green candle")
+        .attr("x", d => xScale(d.round))
+        .attr("y", d => yScale(Math.max(d.num, 0)))
+        .attr("width", xScale.bandwidth())
+        .attr("height", d => Math.abs(yScale(d.num) - yScale(0)));
+
+      svg.selectAll(".wick")
+        .data(chartData)
+        .enter()
+        .append("line")
+        .attr("class", "wick")
+        .attr("x1", d => xScale(d.round) + xScale.bandwidth() / 2)
+        .attr("y1", d => yScale(Math.max(d.num, 0)))
+        .attr("x2", d => xScale(d.round) + xScale.bandwidth() / 2)
+        .attr("y2", d => yScale(Math.min(d.num, 0)))
+        .attr("stroke", "black");
+
+      svg.selectAll(".label")
+        .data(chartData)
+        .enter()
+        .append("text")
+        .attr("class", "label")
+        .attr("x", d => xScale(d.round) + xScale.bandwidth() / 2)
+        .attr("y", d => yScale(d.num) - 5)
+        .attr("text-anchor", "middle")
+        .text(d => d.num);
+    };
+
+    const groupDataByRound = (data) => {
+      const groups = [];
+      let currentGroup = [];
+      data.forEach(d => {
+        const round = d.round % 10000;
+        currentGroup.push(d);
+        if (round === 1) {
+          groups.push(currentGroup);
+          currentGroup = [];
+        }
+      });
+      if (currentGroup.length > 0) {
+        groups.push(currentGroup);
+      }
+      return groups;
+    };
+
+    const renderCharts = (data, candleWidth) => {
+      const chartContainer = d3.select("#charts");
+      chartContainer.selectAll("*").remove();
+      const groupedData = groupDataByRound(data);
+      groupedData.forEach((group, index) => {
+        const containerId = `chart-${index}`;
+        chartContainer.append("div").attr("id", containerId).attr("class", "chart-container");
+        drawChart(group, candleWidth, containerId);
+      });
+    };
+
+    d3.json("19_dbs.json").then(data => {
+      renderCharts(data, 10);
+
+      d3.select("#candleWidth").on("input", function() {
+        renderCharts(data, +this.value);
+      });
+    }).catch(error => {
+      console.error("Error loading the JSON file:", error);
+    });
+  </script>
+</body>
+</html>
