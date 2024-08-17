@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Candlestick Chart</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
+    .candle {
+      stroke: black;
+      stroke-width: 1;
+    }
+    .green {
+      fill: green;
+    }
+    .red {
+      fill: red;
+    }
+    .small {
+      stroke: blue;
+      stroke-width: 2;
+    }
+    .big {
+      stroke: orange;
+      stroke-width: 2;
+    }
+    .scrollable-container {
+      overflow-x: auto;
+      width: 100%;
+    }
+    .slider-container {
+      margin-top: 10px;
+    }
+    .chart-container {
+      margin-bottom: 50px;
+    }
+    .link-line {
+      stroke: black;
+      stroke-width: 2;
+    }
+  </style>
+</head>
+<body>
+  <div class="slider-container">
+    <label for="candleWidth">Candle Width: </label>
+    <input type="range" id="candleWidth" name="candleWidth" min="1" max="50" value="10">
+  </div>
+  <div id="charts"></div>
+  <script>
+    const data = [
+      { "issueNumber": "20240724010978", "number": "7", "colour": "green", "premium": "37427" },
+      { "issueNumber": "20240724010977", "number": "4", "colour": "red", "premium": "78044" },
+      { "issueNumber": "20240724010976", "number": "6", "colour": "red", "premium": "87776" },
+      { "issueNumber": "20240724010975", "number": "1", "colour": "green", "premium": "84091" },
+      { "issueNumber": "20240724010974", "number": "1", "colour": "green", "premium": "79051" },
+      { "issueNumber": "20240724010973", "number": "2", "colour": "red", "premium": "97062" },
+      { "issueNumber": "20240724010972", "number": "4", "colour": "red", "premium": "79914" },
+      { "issueNumber": "20240724010971", "number": "4", "colour": "red", "premium": "18834" },
+      { "issueNumber": "20240724010970", "number": "1", "colour": "green", "premium": "44481" },
+      { "issueNumber": "20240724010969", "number": "4", "colour": "red", "premium": "21804" }
+    ];
+
+    const margin = { top: 20, right: 20, bottom: 100, left: 40 };
+    const height = 300 - margin.top - margin.bottom;
+
+    const yScale = d3.scaleLinear()
+      .domain([0, 9])
+      .range([height, 0]);
+
+    const yAxis = d3.axisLeft(yScale);
+
+    const determineColor = (num) => {
+      return num % 2 === 0 ? "red" : "green";
+    };
+
+    const determineSize = (num) => {
+      return num <= 4 ? "small" : "big";
+    };
+
+    const drawChart = (chartData, candleWidth, containerId) => {
+      const width = chartData.length * (candleWidth + 2) - margin.left - margin.right;
+
+      const xScale = d3.scaleBand()
+        .domain(chartData.map(d => d.issueNumber))
+        .range([0, width])
+        .padding(0.2);
+
+      const xAxis = d3.axisBottom(xScale)
+        .tickFormat(d => d)
+        .tickSizeOuter(0);
+
+      d3.select(`#${containerId}`).selectAll("*").remove();
+
+      const svg = d3.select(`#${containerId}`)
+        .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+      svg.append("g")
+        .attr("class", "x-axis")
+        .attr("transform", `translate(0, ${height})`)
+        .call(xAxis)
+        .selectAll("text")
+        .style("text-anchor", "end")
+        .attr("dx", "-.8em")
+        .attr("dy", ".15em")
+        .attr("transform", "rotate(-90)");
+
+      svg.append("g")
+        .attr("class", "y-axis")
+        .call(yAxis);
+
+      const candles = svg.selectAll(".candle")
+        .data(chartData)
+        .enter()
+        .append("rect")
+        .attr("class", d => `${determineColor(d.number)} ${determineSize(d.number)} candle`)
+        .attr("x", d => xScale(d.issueNumber))
+        .attr("y", d => yScale(Math.max(d.number, 0)))
+        .attr("width", xScale.bandwidth())
+        .attr("height", d => Math.abs(yScale(d.number) - yScale(0)));
+
+      svg.selectAll(".wick")
+        .data(chartData)
+        .enter()
+        .append("line")
+        .attr("class", "wick")
+        .attr("x1", d => xScale(d.issueNumber) + xScale.bandwidth() / 2)
+        .attr("y1", d => yScale(Math.max(d.number, 0)))
+        .attr("x2", d => xScale(d.issueNumber) + xScale.bandwidth() / 2)
+        .attr("y2", d => yScale(Math.min(d.number, 0)))
+        .attr("stroke", "black");
+
+      svg.selectAll(".label")
+        .data(chartData)
+        .enter()
+        .append("text")
+        .attr("class", "label")
+        .attr("x", d => xScale(d.issueNumber) + xScale.bandwidth() / 2)
+        .attr("y", d => yScale(d.number) - 5)
+        .attr("text-anchor", "middle")
+        .text(d => d.number);
+
+      svg.selectAll(".link-line")
+        .data(chartData.slice(1))
+        .enter()
+        .append("line")
+        .attr("class", "link-line")
+        .attr("x1", (d, i) => xScale(chartData[i].issueNumber) + xScale.bandwidth() / 2)
+        .attr("y1", (d, i) => yScale(chartData[i].number))
+        .attr("x2", (d, i) => xScale(chartData[i + 1].issueNumber) + xScale.bandwidth() / 2)
+        .attr("y2", (d, i) => yScale(chartData[i + 1].number));
+    };
+
+    const groupDataByIssueNumber = (data) => {
+      const groups = [];
+      let currentGroup = [];
+      data.forEach(d => {
+        const issue = parseInt(d.issueNumber.substring(d.issueNumber.length - 4));
+        currentGroup.push(d);
+        if (issue === 1) {
+          groups.push(currentGroup);
+          currentGroup = [];
+        }
+      });
+      if (currentGroup.length > 0) {
+        groups.push(currentGroup);
+      }
+      return groups;
+    };
+
+    const renderCharts = (candleWidth) => {
+      const chartContainer = d3.select("#charts");
+      chartContainer.selectAll("*").remove();
+      const groupedData = groupDataByIssueNumber(data);
+      groupedData.forEach((group, index) => {
+        const containerId = `chart-${index}`;
+        chartContainer.append("div").attr("id", containerId).attr("class", "chart-container");
+        drawChart(group, candleWidth, containerId);
+      });
+    };
+
+    renderCharts(10);
+
+    d3.select("#candleWidth").on("input", function() {
+      renderCharts(+this.value);
+    });
+  </script>
+</body>
+</html>
