@@ -1,0 +1,137 @@
+// ==UserScript==
+// @name         Intercept and Filter Requests
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  Intercept and filter payload data from requests
+// @author       Your Name
+// @match        https://*.tirangaapi.com/*
+// @grant        none
+// @run-at       document-start
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    const apiUrl = 'https://tirangaapi.com/api/webapi/GetGameIssue';
+    const bearerToken = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOiIxNzIwNzY5MTQ2IiwibmJmIjoiMTcyMDc2OTE0NiIsImV4cCI6IjE3MjA3NzA5NDYiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL2V4cGlyYXRpb24iOiI3LzEyLzIwMjQgMToyNTo0NiBQTSIsImh0dHA6Ly9zY2hlbWFzLm1pY3Jvc29mdC5jb20vd3MvMjAwOC8wNi9pZGVudGl0eS9jbGFpbXMvcm9sZSI6IkFjY2Vzc19Ub2tlbiIsIlVzZXJJZCI6Ijk3NzEyNzEiLCJVc2VyTmFtZSI6IjkxNzU2NTg2MTQ3NiIsIlVzZXJQaG90byI6IjYiLCJOaWNrTmFtZSI6IkdvcGFsIiwiQW1vdW50IjoiMC4yNCIsIkludGVncmFsIjoiMCIsIkxvZ2luTWFyayI6Ikg1IiwiTG9naW5UaW1lIjoiNy8xMi8yMDI0IDEyOjU1OjQ2IFBNIiwiTG9naW5JUEFkZHJlc3MiOiIxNTIuNTkuMTc0LjI1NSIsIkRiTnVtYmVyIjoiMCIsIklzdmFsaWRhdG9yIjoiMCIsIktleUNvZGUiOiIxNDYiLCJUb2tlblR5cGUiOiJBY2Nlc3NfVG9rZW4iLCJQaG9uZVR5cGUiOiIwIiwiVXNlclR5cGUiOiIwIiwiVXNlck5hbWUyIjoiIiwiaXNzIjoiand0SXNzdWVyIiwiYXVkIjoibG90dGVyeVRpY2tldCJ9.F1KN7sqSA8NR_u2yJ78V1PGJHYwwn47r4WJd-rgZqRQ';
+    const headers = {
+        'Content-Type': 'application/json;charset=UTF-8',
+        'Authorization': bearerToken
+    };
+
+    let interceptEnabled = true; // Automatically enable interception
+
+    console.log('Request interception is set up and enabled');
+
+    // Function to generate signature (replace this with the actual logic)
+    function generateSignature(payload) {
+        // Replace this with your actual signature generation logic
+        // This example uses a simple string concatenation for demonstration
+        const secretKey = 'your_secret_key_here'; // Replace with your actual secret key
+        const timestamp = Math.floor(Date.now() / 1000);
+        const stringToSign = `${timestamp}${payload.random}${payload.pageSize}${payload.pageNo}${payload.typeId}${payload.language}${secretKey}`;
+        // Replace with your actual hashing function (e.g., SHA256)
+        return sha256(stringToSign);
+    }
+
+    // SHA256 hashing function (example)
+    function sha256(input) {
+        // Replace this with your actual SHA256 implementation
+        // This is a placeholder and needs proper implementation
+        return 'hashed_value'; // Replace with actual hash value
+    }
+
+    function sendRequest() {
+        const timestamp = Math.floor(Date.now() / 1000);
+        const random = Math.random().toString(36).substring(7);
+        const payload = {
+            pageSize: 10,
+            pageNo: 1,
+            typeId: 1,
+            language: 0,
+            random: random,
+            signature: generateSignature({ pageSize: 10, pageNo: 1, typeId: 1, language: 0, random: random }),
+            timestamp: timestamp
+        };
+
+        fetch(apiUrl, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(payload)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.code === 0) {
+                updateConsole(data.data.list);
+            } else {
+                console.error('Failed to fetch data:', data.msg);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+        });
+    }
+
+    function updateConsole(data) {
+        console.clear(); // Clear previous console output
+        data.forEach(item => {
+            console.log(`Issue Number: ${item.issueNumber}, Number: ${item.number}, Colour: ${item.colour}, Premium: ${item.premium}`);
+        });
+    }
+
+    // Function to handle and log fetch request and response
+    const handleFetch = (response, args) => {
+        if (interceptEnabled && (response.url.includes("tirangaapi.com/api/webapi/GetGameIssue") || response.url.includes("tirangaapi.com/api/webapi/GetNoaverageEmerdList"))) {
+            console.log('Intercepted fetch request to:', response.url);
+            console.log('Request headers:', args[1]?.headers);
+            console.log('Request payload:', args[1]?.body);
+            response.clone().json().then(data => {
+                console.log('Response payload:', data);
+            }).catch(err => {
+                console.error('Error reading response:', err);
+            });
+        }
+    };
+
+    // Override the native fetch function
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        return originalFetch(...args).then(response => {
+            handleFetch(response, args);
+            return response;
+        }).catch(err => {
+            console.error('Fetch error:', err);
+            throw err;
+        });
+    };
+
+    // Override the native XMLHttpRequest
+    const originalXhrOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        this._url = url;  // Store the URL for use in the send method
+        return originalXhrOpen.call(this, method, url, ...rest);
+    };
+
+    const originalXhrSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function(body) {
+        this.addEventListener('load', function() {
+            if (interceptEnabled && (this._url.includes("tirangaapi.com/api/webapi/GetGameIssue") || this._url.includes("tirangaapi.com/api/webapi/GetNoaverageEmerdList"))) {
+                console.log('Intercepted XHR request to:', this._url);
+                console.log('Request payload:', body);
+                try {
+                    const responseJson = JSON.parse(this.responseText);
+                    console.log('Response payload:', responseJson);
+                } catch (err) {
+                    console.error('Error parsing response JSON:', err);
+                    console.log('Response payload:', this.responseText);
+                }
+            }
+        });
+        return originalXhrSend.call(this, body);
+    };
+
+    // Send initial request and set interval for subsequent requests
+    sendRequest();
+    setInterval(sendRequest, 60000);
+
+})();
